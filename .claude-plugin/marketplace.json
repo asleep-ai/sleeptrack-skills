@@ -5,7 +5,21 @@
     "email": "marcus.kyung@asleep.ai"
   },
   "metadata": {
-    "description": "Skills marketplace for Asleep API integration - sleep tracking, user management, and analytics"
+    "description": "Skills marketplace for Asleep API integration - sleep tracking, user management, and analytics",
+    "version": "1.0.0"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "sleeptrack-skills",
+      "description": "Collection of Asleep API integration skills covering foundation concepts, Android SDK, iOS SDK, and backend REST API integration",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/sleeptrack-foundation",
+        "./skills/sleeptrack-android",
+        "./skills/sleeptrack-ios",
+        "./skills/sleeptrack-be"
+      ]
+    }
+  ]
 }
