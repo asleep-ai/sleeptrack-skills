@@ -1,0 +1,11 @@
+{
+  "name": "sleeptrack-skills",
+  "owner": {
+    "name": "asleep-ai",
+    "email": "marcus.kyung@asleep.ai"
+  },
+  "metadata": {
+    "description": "Skills marketplace for Asleep API integration - sleep tracking, user management, and analytics"
+  },
+  "plugins": []
+}
