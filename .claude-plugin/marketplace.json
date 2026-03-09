@@ -6,19 +6,19 @@
   },
   "metadata": {
     "description": "Skills marketplace for Asleep API integration - sleep tracking, user management, and analytics",
-    "version": "1.0.0"
+    "version": "2.0.0"
   },
   "plugins": [
     {
       "name": "sleeptrack-skills",
-      "description": "Collection of Asleep API integration skills covering foundation concepts, Android SDK, iOS SDK, and backend REST API integration",
+      "description": "Collection of Asleep API integration skills covering foundation concepts, REST API, Android SDK, and iOS SDK",
       "source": "./",
       "strict": false,
       "skills": [
         "./skills/sleeptrack-foundation",
+        "./skills/sleeptrack-api",
         "./skills/sleeptrack-android",
-        "./skills/sleeptrack-ios",
-        "./skills/sleeptrack-be"
+        "./skills/sleeptrack-ios"
       ]
     }
   ]

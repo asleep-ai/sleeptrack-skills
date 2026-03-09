@@ -1,551 +1,205 @@
 ---
 name: sleeptrack-android
-description: This skill helps Android developers integrate the Asleep SDK for sleep tracking functionality. Use this skill when developers ask about Android implementation, MVVM architecture patterns, permission handling, Jetpack Compose UI, Kotlin coroutines integration, or Android-specific sleep tracking features. This skill provides working code examples from the official sample app.
+description: Asleep Android SDK integration reference. Use when building Android apps with sleep tracking -- covers SDK setup, API surface, permissions, foreground service, error codes, and lifecycle constraints. Self-contained; does not require sleeptrack-foundation.
 ---
 
-# Sleeptrack Android
+# Asleep Android SDK Reference
 
 ## Overview
 
-This skill provides comprehensive guidance for integrating the Asleep sleep tracking SDK into Android applications. It covers Android-specific implementation details including MVVM architecture, permission handling, state management, UI patterns, and lifecycle management.
+The Asleep Android SDK wraps audio capture, upload, and session management into a single library. It records ambient sound via the device microphone, streams audio to Asleep servers for analysis, and returns sleep stage classifications in real time and as a final report. The SDK manages its own foreground service to keep tracking alive in the background.
 
-Use this skill when developers need to:
-- Set up Asleep SDK in Android projects
-- Implement sleep tracking with proper Android architecture
-- Handle Android-specific permissions (microphone, notifications, battery optimization)
-- Manage tracking lifecycle with state machines
-- Build UI with ViewBinding or Jetpack Compose
-- Handle errors and edge cases in Android environment
-- Implement foreground services for background tracking
+## Requirements
 
-**Prerequisites**: Review the `sleeptrack-foundation` skill first for core concepts including session lifecycle, error codes, and API fundamentals.
+| Requirement | Value |
+|---|---|
+| minSdk | 24 (Android 7.0) |
+| targetSdk | 34 |
+| Java | 17 |
+| Kotlin | 1.9.24+ |
 
-## Quick Start
-
-### 1. Add Dependencies
-
-Add to your app-level `build.gradle`:
+## Dependencies
 
 ```gradle
 dependencies {
-    // Core dependencies
-    implementation 'androidx.core:core-ktx:1.12.0'
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.lifecycle:lifecycle-service:2.7.0'
-
-    // Required for Asleep SDK
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'com.google.code.gson:gson:2.10'
     implementation 'ai.asleep:asleepsdk:3.1.4'
-
-    // Optional: Hilt for DI
-    implementation "com.google.dagger:hilt-android:2.48"
-    kapt "com.google.dagger:hilt-compiler:2.48"
 }
 ```
 
-**Minimum Requirements**:
-- minSdk: 24 (Android 7.0)
-- targetSdk: 34
-- Java: 17
-- Kotlin: 1.9.24+
-
-See `references/gradle_setup.md` for complete Gradle configuration.
-
-### 2. Configure Permissions
-
-Add to `AndroidManifest.xml`:
+## Manifest Permissions
 
 ```xml
-<manifest>
-    <!-- Essential permissions -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-
-    <!-- Battery optimization -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <!-- Notifications (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-</manifest>
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+<!-- Android 13+ -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 ```
 
-### 3. Initialize SDK
+## SDK API Surface
 
-```kotlin
+### Initialization
+
+```
 Asleep.initAsleepConfig(
-    context = applicationContext,
-    apiKey = "your_api_key_here",
-    userId = "unique_user_id",
-    baseUrl = "https://api.asleep.ai",
-    callbackUrl = null, // Optional webhook URL
-    service = "YourAppName",
-    asleepConfigListener = object : Asleep.AsleepConfigListener {
-        override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
-            // SDK initialized successfully
-        }
-
-        override fun onFail(errorCode: Int, detail: String) {
-            Log.e("Asleep", "Init failed: $errorCode - $detail")
-        }
-    }
+    context: Context,
+    apiKey: String,
+    userId: String?,
+    baseUrl: String?,
+    callbackUrl: String?,
+    service: String?,
+    asleepConfigListener: AsleepConfigListener
 )
 ```
 
-### 4. Start Sleep Tracking
+Initializes the SDK configuration. Pass `null` for `userId` to have the server generate one (returned in `onSuccess`). The `callbackUrl` is an optional webhook endpoint. The `service` string identifies your app in analytics.
 
-```kotlin
+**AsleepConfigListener**
+
+- `onSuccess(userId: String?, asleepConfig: AsleepConfig?)` -- SDK ready. Store the `asleepConfig` for tracking calls and persist `userId` for future sessions.
+- `onFail(errorCode: Int, detail: String)` -- Initialization failed. Check API key validity and network connectivity.
+
+### Start Tracking
+
+```
 Asleep.beginSleepTracking(
-    asleepConfig = asleepConfig,
-    asleepTrackingListener = object : Asleep.AsleepTrackingListener {
-        override fun onStart(sessionId: String) {
-            // Tracking started successfully
-        }
-
-        override fun onPerform(sequence: Int) {
-            // Called every ~30 seconds (1 sequence)
-        }
-
-        override fun onFinish(sessionId: String?) {
-            // Tracking completed
-        }
-
-        override fun onFail(errorCode: Int, detail: String) {
-            // Handle tracking errors
-        }
-    },
-    notificationTitle = "Sleep Tracking Active",
-    notificationText = "Tap to return to app",
-    notificationIcon = R.drawable.ic_notification,
-    notificationClass = MainActivity::class.java
+    asleepConfig: AsleepConfig,
+    asleepTrackingListener: AsleepTrackingListener,
+    notificationTitle: String,
+    notificationText: String,
+    notificationIcon: Int,
+    notificationClass: Class<*>
 )
 ```
 
-### 5. Stop Tracking
+Starts audio capture and opens a sleep session. Automatically creates a foreground service with the provided notification parameters. `notificationClass` is the Activity opened when the user taps the notification.
 
-```kotlin
+**AsleepTrackingListener**
+
+- `onStart(sessionId: String)` -- Tracking session opened. Store `sessionId` if needed.
+- `onPerform(sequence: Int)` -- Called approximately every 30 seconds. Each call represents one sequence (one audio chunk uploaded).
+- `onFinish(sessionId: String?)` -- Tracking stopped and session closed. Final report available via API.
+- `onFail(errorCode: Int, detail: String)` -- Error during tracking. See Error Codes below.
+
+### Stop Tracking
+
+```
 Asleep.endSleepTracking()
 ```
 
-## Android Architecture Pattern (MVVM + Hilt)
+Stops audio capture, closes the session, and tears down the foreground service.
 
-The recommended architecture follows Android best practices with MVVM pattern, Hilt dependency injection, and proper state management.
+### Check Tracking Status
 
-### State Management
-
-Define tracking states using sealed classes:
-
-```kotlin
-sealed class AsleepState {
-    data object STATE_IDLE: AsleepState()
-    data object STATE_INITIALIZING : AsleepState()
-    data object STATE_INITIALIZED : AsleepState()
-    data object STATE_TRACKING_STARTING : AsleepState()
-    data object STATE_TRACKING_STARTED : AsleepState()
-    data object STATE_TRACKING_STOPPING : AsleepState()
-    data class STATE_ERROR(val errorCode: AsleepError) : AsleepState()
-}
-
-data class AsleepError(val code: Int, val message: String)
+```
+Asleep.isSleepTrackingAlive(context: Context): Boolean
 ```
 
-### Basic ViewModel Pattern
+Returns `true` if the tracking foreground service is currently running. Use this on app resume to reconnect UI to an active session.
 
-```kotlin
-@HiltViewModel
-class SleepTrackingViewModel @Inject constructor(
-    @ApplicationContext private val app: Application
-) : ViewModel() {
+### Get Real-Time Data
 
-    private val _trackingState = MutableStateFlow<AsleepState>(AsleepState.STATE_IDLE)
-    val trackingState: StateFlow<AsleepState> = _trackingState
-
-    private var config: AsleepConfig? = null
-
-    fun initializeSDK(userId: String) {
-        Asleep.initAsleepConfig(
-            context = app,
-            apiKey = BuildConfig.ASLEEP_API_KEY,
-            userId = userId,
-            baseUrl = "https://api.asleep.ai",
-            callbackUrl = null,
-            service = "MyApp",
-            asleepConfigListener = object : Asleep.AsleepConfigListener {
-                override fun onSuccess(userId: String?, asleepConfig: AsleepConfig?) {
-                    config = asleepConfig
-                    _trackingState.value = AsleepState.STATE_INITIALIZED
-                }
-                override fun onFail(errorCode: Int, detail: String) {
-                    _trackingState.value = AsleepState.STATE_ERROR(AsleepError(errorCode, detail))
-                }
-            }
-        )
-    }
-
-    fun startTracking() {
-        config?.let {
-            Asleep.beginSleepTracking(
-                asleepConfig = it,
-                asleepTrackingListener = trackingListener,
-                notificationTitle = "Sleep Tracking",
-                notificationText = "Active",
-                notificationIcon = R.drawable.ic_notification,
-                notificationClass = MainActivity::class.java
-            )
-        }
-    }
-
-    fun stopTracking() {
-        Asleep.endSleepTracking()
-    }
-}
 ```
-
-**For complete production-ready ViewModel with real-time data, error handling, and lifecycle management**, see `references/complete_viewmodel_implementation.md`.
-
-### Basic Activity Pattern
-
-```kotlin
-@AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
-
-    private lateinit var binding: ActivityMainBinding
-    private val viewModel: SleepTrackingViewModel by viewModels()
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-
-        // Setup button
-        binding.btnTrack.setOnClickListener {
-            when (viewModel.trackingState.value) {
-                AsleepState.STATE_INITIALIZED -> viewModel.startTracking()
-                AsleepState.STATE_TRACKING_STARTED -> viewModel.stopTracking()
-                else -> {}
-            }
-        }
-
-        // Observe state
-        lifecycleScope.launch {
-            viewModel.trackingState.collect { state ->
-                updateUI(state)
-            }
-        }
-    }
-}
-```
-
-**For complete Activity implementation with permission handling**, see `references/complete_viewmodel_implementation.md`.
-
-## Permission Handling
-
-Android requires multiple runtime permissions for sleep tracking:
-
-### Required Permissions
-
-1. **RECORD_AUDIO**: Microphone access for sleep sound recording
-2. **POST_NOTIFICATIONS**: Android 13+ notification permission
-3. **Battery Optimization**: Prevent app from being killed during tracking
-
-### Permission Request Flow
-
-```kotlin
-// Request permissions sequentially
-when {
-    !hasMicrophonePermission() -> requestMicrophone()
-    !hasNotificationPermission() -> requestNotification()
-    !isBatteryOptimizationIgnored() -> requestBatteryOptimization()
-    else -> allPermissionsGranted()
-}
-```
-
-### Best Practices
-
-1. **Request in sequence**: Request one permission at a time for better UX
-2. **Show rationale**: Explain why each permission is needed before requesting
-3. **Handle denial**: Provide fallback or guide users to settings
-4. **Check on resume**: Re-check permissions when app resumes
-
-```kotlin
-override fun onResume() {
-    super.onResume()
-    if (!hasRequiredPermissions() && Asleep.isSleepTrackingAlive(applicationContext)) {
-        handlePermissionLoss()
-    }
-}
-```
-
-**For complete PermissionManager implementation**, see `references/complete_viewmodel_implementation.md`.
-
-## Error Handling
-
-Distinguish between critical errors and warnings:
-
-### Error Classification
-
-```kotlin
-fun isWarning(errorCode: Int): Boolean {
-    return errorCode in setOf(
-        AsleepErrorCode.ERR_AUDIO_SILENCED,
-        AsleepErrorCode.ERR_UPLOAD_FAILED
-    )
-}
-
-fun handleError(error: AsleepError) {
-    if (isWarning(error.code)) {
-        // Show warning, continue tracking
-        Toast.makeText(context, getUserFriendlyMessage(error), Toast.LENGTH_SHORT).show()
-    } else {
-        // Critical error - stop tracking
-        stopTracking()
-        showErrorDialog(getUserFriendlyMessage(error))
-    }
-}
-```
-
-## UI Patterns
-
-### ViewBinding Example
-
-```kotlin
-class TrackingFragment : Fragment() {
-    private var _binding: FragmentTrackingBinding? = null
-    private val binding get() = _binding!!
-    private val viewModel: SleepTrackingViewModel by viewModels()
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            viewModel.trackingState.collect { state ->
-                when (state) {
-                    AsleepState.STATE_TRACKING_STARTED -> {
-                        binding.btnTrack.text = "Stop Tracking"
-                    }
-                    AsleepState.STATE_INITIALIZED -> {
-                        binding.btnTrack.text = "Start Tracking"
-                    }
-                    else -> {}
-                }
-            }
-        }
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
-}
-```
-
-### Jetpack Compose Example
-
-```kotlin
-@Composable
-fun SleepTrackingScreen(
-    viewModel: SleepTrackingViewModel = hiltViewModel()
-) {
-    val trackingState by viewModel.trackingState.collectAsState()
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        when (trackingState) {
-            AsleepState.STATE_TRACKING_STARTED -> {
-                Button(onClick = { viewModel.stopTracking() }) {
-                    Text("Stop Tracking")
-                }
-            }
-            AsleepState.STATE_INITIALIZED -> {
-                Button(onClick = { viewModel.startTracking() }) {
-                    Text("Start Sleep Tracking")
-                }
-            }
-            is AsleepState.STATE_ERROR -> {
-                ErrorDisplay(error = (trackingState as AsleepState.STATE_ERROR).errorCode)
-            }
-            else -> {
-                CircularProgressIndicator()
-            }
-        }
-    }
-}
-```
-
-**For complete UI implementations with Material3 components**, see `references/ui_implementation_guide.md`.
-
-## Lifecycle Management
-
-### Handle App Lifecycle Events
-
-```kotlin
-@AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
-
-    override fun onStart() {
-        super.onStart()
-        // Reconnect to existing tracking session
-        if (Asleep.isSleepTrackingAlive(applicationContext)) {
-            viewModel.reconnectToTracking()
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // Tracking continues in background via foreground service
-        // No action needed
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // Do NOT call endSleepTracking() here
-        // Service continues in background
-    }
-}
-```
-
-### Foreground Service
-
-The Asleep SDK automatically manages a foreground service during tracking. The notification keeps the service alive:
-
-```kotlin
-Asleep.beginSleepTracking(
-    asleepConfig = config,
-    asleepTrackingListener = listener,
-    notificationTitle = "Sleep Tracking Active",
-    notificationText = "Tracking your sleep patterns",
-    notificationIcon = R.drawable.ic_sleep,
-    notificationClass = MainActivity::class.java  // Tapping notification opens this
+Asleep.getCurrentSleepData(
+    asleepSleepDataListener: AsleepSleepDataListener
 )
 ```
 
-The service will:
-- Keep the app alive during sleep tracking
-- Show persistent notification
-- Maintain microphone access
-- Continue even if user swipes away the app
+Fetches preliminary sleep stage data for the current session. Only available after sequence 10; call every 10 sequences for updated results.
 
-## Real-Time Sleep Data
+**AsleepSleepDataListener**
 
-Access preliminary sleep data during tracking:
+- `onSleepDataReceived(session: Session)` -- Contains `sleepStages` and `snoringStages` arrays with classifications up to the current point.
+- `onFail(errorCode: Int, detail: String)` -- Data fetch failed.
 
-```kotlin
-// In ViewModel
-override fun onPerform(sequence: Int) {
-    // Check after sequence 10, then every 10 sequences
-    if (sequence > 10 && sequence % 10 == 0) {
-        getCurrentSleepData()
-    }
-}
+## Tracking States
 
-private fun getCurrentSleepData() {
-    Asleep.getCurrentSleepData(
-        asleepSleepDataListener = object : Asleep.AsleepSleepDataListener {
-            override fun onSleepDataReceived(session: Session) {
-                val currentSleepStage = session.sleepStages?.lastOrNull()
-                val currentSnoringStage = session.snoringStages?.lastOrNull()
+The SDK progresses through these states during its lifecycle:
 
-                Log.d("Sleep", "Current stage: $currentSleepStage")
-            }
+| State | Description |
+|---|---|
+| `STATE_IDLE` | No configuration loaded |
+| `STATE_INITIALIZING` | `initAsleepConfig` called, waiting for response |
+| `STATE_INITIALIZED` | Config ready, can start tracking |
+| `STATE_TRACKING_STARTING` | `beginSleepTracking` called, service launching |
+| `STATE_TRACKING_STARTED` | Audio capture active, sequences incrementing |
+| `STATE_TRACKING_STOPPING` | `endSleepTracking` called, finalizing session |
+| `STATE_ERROR` | Error occurred, check error code |
 
-            override fun onFail(errorCode: Int, detail: String) {
-                Log.e("Sleep", "Failed to get current data: $errorCode")
-            }
-        }
-    )
-}
-```
+## Foreground Service
 
-**Note**: Real-time data is preliminary and may differ from final report after processing.
+The SDK automatically manages a foreground service during tracking. Key behaviors:
 
-## Testing
+- The service starts when `beginSleepTracking` is called and stops when `endSleepTracking` completes.
+- The notification parameters (`notificationTitle`, `notificationText`, `notificationIcon`, `notificationClass`) control what the user sees in the notification shade.
+- The service survives the user swiping the app away from recents.
+- Do NOT call `endSleepTracking()` in `onDestroy()`. The service is designed to outlive the Activity.
 
-### Unit Testing
-```kotlin
-class SleepTrackingViewModelTest {
-    @get:Rule val mainDispatcherRule = MainDispatcherRule()
+## Real-Time Data
 
-    @Test
-    fun `startTracking should fail if not initialized`() = runTest {
-        viewModel.startTracking()
-        assertNotEquals(AsleepState.STATE_TRACKING_STARTED, viewModel.trackingState.value)
-    }
-}
-```
+Preliminary sleep data becomes available after sequence 10. Best practice is to check every 10 sequences (i.e., when `sequence > 10 && sequence % 10 == 0` in the `onPerform` callback). Data includes sleep stage and snoring classifications up to the current point. This data is preliminary and may differ from the final processed report.
 
-### Integration Testing
-```kotlin
-@Test
-fun trackingFlow_complete() {
-    onView(withId(R.id.btn_start_stop)).perform(click())
-    onView(withId(R.id.tracking_indicator)).check(matches(isDisplayed()))
-}
-```
+## Error Codes
 
-**For complete testing guide with Compose UI tests and test utilities**, see `references/testing_guide.md`.
+### Critical Errors (stop tracking)
 
-## Common Issues & Solutions
+| Code | Description |
+|---|---|
+| `ERR_MIC_PERMISSION` | Microphone permission revoked or unavailable |
+| `ERR_AUDIO` | Audio capture failed (hardware or OS conflict) |
+| `ERR_INVALID_URL` | Base URL or callback URL malformed |
+| `ERR_COMMON_EXPIRED` | API key or session expired |
+| `ERR_UPLOAD_FORBIDDEN` | Upload rejected (e.g., same user_id active on another device) |
+| `ERR_UPLOAD_NOT_FOUND` | Session not found on server |
+| `ERR_CLOSE_NOT_FOUND` | Attempted to close a non-existent session |
 
-### Tracking stops unexpectedly
-**Causes**: Battery optimization, notification dismissed, permission revoked, microphone conflict
+### Warning Errors (continue tracking)
 
-**Solution**: Check battery optimization and permissions on resume:
-```kotlin
-override fun onResume() {
-    super.onResume()
-    if (!hasRequiredPermissions() && Asleep.isSleepTrackingAlive(applicationContext)) {
-        handlePermissionLoss()
-    }
-}
-```
+| Code | Description |
+|---|---|
+| `ERR_AUDIO_SILENCED` | Microphone receiving silence (blocked or muted) |
+| `ERR_AUDIO_UNSILENCED` | Microphone resumed receiving audio after silence |
+| `ERR_UPLOAD_FAILED` | Temporary upload failure (will retry automatically) |
 
-### No real-time data available
-**Cause**: Checking before sequence 10
+## Lifecycle Constraints
 
-**Solution**: Only call `getCurrentSleepData()` after sequence 10
+- **onStart**: If `isSleepTrackingAlive(context)` returns true, reconnect your UI to the active tracking session (re-register listeners).
+- **onStop / onDestroy**: Do not stop tracking. The foreground service continues independently.
+- **onResume**: Re-check runtime permissions. If a required permission was revoked while tracking was active, handle gracefully.
+- **Battery optimization**: Must be disabled for the app to ensure reliable background tracking. Without this, the OS may kill the foreground service during extended sleep sessions.
 
-### ERR_UPLOAD_FORBIDDEN error
-**Cause**: Same user_id tracking on multiple devices
+## Permission Request Order
 
-**Solution**: Use unique user IDs per device or check for active sessions before starting
+Request permissions sequentially, not in parallel:
 
-## Resources
+1. **Microphone** (RECORD_AUDIO) -- required before tracking can start
+2. **Notification** (POST_NOTIFICATIONS) -- Android 13+ only, needed for foreground service visibility
+3. **Battery optimization** (REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) -- ensures background reliability
 
-This skill includes detailed reference documentation:
+Show rationale before each request. Handle denial by guiding the user to app settings.
 
-- `references/complete_viewmodel_implementation.md`: Complete ViewModel, Activity, and PermissionManager implementations
-- `references/ui_implementation_guide.md`: Complete ViewBinding and Jetpack Compose UI examples
-- `references/testing_guide.md`: Comprehensive unit, integration, and UI testing guides
-- `references/android_architecture_patterns.md`: Complete architecture examples from the official sample app
-- `references/gradle_setup.md`: Comprehensive Gradle configuration including dependencies and ProGuard rules
+## Common Issues
 
-### Official Documentation
+- **Tracking stops unexpectedly**: Check battery optimization is disabled, notification permission is granted, microphone permission is still held, and no other app has claimed exclusive mic access.
+- **No real-time data**: Verify sequence count exceeds 10 before calling `getCurrentSleepData`.
+- **ERR_UPLOAD_FORBIDDEN**: The same `user_id` is actively tracking on another device. Use unique user IDs per device or check for active sessions before starting.
+- **Service killed on some OEMs**: Some manufacturers (Xiaomi, Huawei, Samsung) aggressively kill background services. Guide users to vendor-specific battery settings (see https://dontkillmyapp.com).
 
-- **Android Getting Started**: https://docs-en.asleep.ai/docs/android-get-started.md
-- **AsleepConfig Reference**: https://docs-en.asleep.ai/docs/android-asleep-config.md
-- **SleepTrackingManager**: https://docs-en.asleep.ai/docs/android-sleep-tracking-manager.md
-- **Error Codes**: https://docs-en.asleep.ai/docs/android-error-codes.md
+## Authentication
 
-### Android Resources
+- Obtain an API key from the Asleep Dashboard under the Settings tab.
+- Pass the key as the `apiKey` parameter to `initAsleepConfig`.
+- Base URL: `https://api.asleep.ai`
 
-- **Android Permissions**: https://developer.android.com/guide/topics/permissions/overview
-- **Foreground Services**: https://developer.android.com/develop/background-work/services/foreground-services
-- **StateFlow Guide**: https://developer.android.com/kotlin/flow/stateflow-and-sharedflow
-- **Hilt Documentation**: https://developer.android.com/training/dependency-injection/hilt-android
+## Links
 
-## Next Steps
-
-After implementing Android sleep tracking:
-
-1. **Test thoroughly**: Test on different Android versions (especially 13+ for notifications)
-2. **Handle edge cases**: Low battery, airplane mode, app updates during tracking
-3. **Fetch reports**: Use REST API or backend integration to retrieve sleep reports
-4. **Build UI**: Create compelling visualizations of sleep data
-5. **Analytics**: Track user engagement and sleep patterns
-
-For backend report fetching and webhook integration, use the `sleeptrack-be` skill.
+- Android Getting Started: https://docs-en.asleep.ai/docs/android-get-started.md
+- AsleepConfig Reference: https://docs-en.asleep.ai/docs/android-asleep-config.md
+- SleepTrackingManager: https://docs-en.asleep.ai/docs/android-sleep-tracking-manager.md
+- Error Codes: https://docs-en.asleep.ai/docs/android-error-codes.md
+- Android Permissions Guide: https://developer.android.com/guide/topics/permissions/overview
+- Foreground Services: https://developer.android.com/develop/background-work/services/foreground-services
