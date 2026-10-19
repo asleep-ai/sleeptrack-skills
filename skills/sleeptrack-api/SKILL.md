@@ -212,7 +212,7 @@ Success is HTTP 200 with `{"detail":"reanalyze success"}` or `{"detail":"already
 | 410 | Analysis result no longer exists |
 | 422 | Session not COMPLETE |
 
-Send bounds inside the recorded measurement window (`measurement_start_time`..`measurement_end_time`). Handle 400 for out-of-range or too-short ranges, and do not rely on the server to adjust bounds. Do not infer model-specific minimum durations from this public reference.
+Send bounds inside the recorded measurement window (`measurement_start_time`..`measurement_end_time`). Handle 400 for invalid, unordered, or out-of-range bounds, and do not rely on the server to adjust bounds. Do not infer model-specific minimum durations from this public reference.
 
 ### DELETE /ai/v1/sessions/{session_id} -- Delete Session
 
@@ -321,4 +321,4 @@ This skill includes detailed response schemas and field definitions:
 
 ## Contract sources
 
-Verified against public documentation on 2026-10-19: [Get Session v3](https://docs-en.asleep.ai/docs/data-api-get-session.md), [v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), [List Sessions](https://docs-en.asleep.ai/docs/data-api-list-sessions.md), [Average Stats](https://docs-en.asleep.ai/docs/get-users-average-stats.md), [Create User](https://docs-en.asleep.ai/docs/session-api-create-user.md), and [Update User](https://docs-en.asleep.ai/docs/put-update-user.md), and [Get User](https://docs-en.asleep.ai/docs/session-api-get-user.md). Public documentation defines the customer-facing contract; server release behavior is not proof of deployment.
+Verified against public documentation on 2026-10-19: [Get Session v3](https://docs-en.asleep.ai/docs/data-api-get-session.md), [v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), [List Sessions](https://docs-en.asleep.ai/docs/data-api-list-sessions.md), [Average Stats](https://docs-en.asleep.ai/docs/get-users-average-stats.md), [Create User](https://docs-en.asleep.ai/docs/session-api-create-user.md), [Update User](https://docs-en.asleep.ai/docs/put-update-user.md), and [Get User](https://docs-en.asleep.ai/docs/session-api-get-user.md). Public documentation defines the customer-facing contract; tolerate additive fields.

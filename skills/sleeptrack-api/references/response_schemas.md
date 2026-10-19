@@ -281,7 +281,7 @@ Averages are calculated over `slept_sessions`, not the no-sleep array. Duration/
 | sleep_cycle_count | Integer or null | Average sleep cycles per session |
 | snoring_count | Integer or null | Average snoring episodes per session |
 
-Additional nullable average fields: `time_in_stable_breath`, `time_in_unstable_breath`, `unstable_breath_count` (integers), and `stable_breath_ratio`, `unstable_breath_ratio`, `breathing_index` (floats). These appear in the public response example; the prose table omits the legacy breathing fields.
+Additional nullable average fields: `time_in_stable_breath`, `time_in_unstable_breath`, `unstable_breath_count` (integers), and `stable_breath_ratio`, `unstable_breath_ratio`, `breathing_index` (floats). These appear in the public response example; the prose table omits the breathing fields.
 
 ### Never Slept Session Object
 
@@ -504,4 +504,4 @@ Metadata fields are optional and nullable. Create User may omit metadata; Update
 
 ## Public sources
 
-Verified 2026-10-19: [Get Session v3](https://docs-en.asleep.ai/docs/data-api-get-session.md), [v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), [List Sessions](https://docs-en.asleep.ai/docs/data-api-list-sessions.md), [Average Stats](https://docs-en.asleep.ai/docs/get-users-average-stats.md), and [Webhook V3](https://docs-en.asleep.ai/docs/webhook.md). Public documentation governs required customer fields; released server additions are not automatically mandatory public fields.
+Verified 2026-10-19: [Get Session v3](https://docs-en.asleep.ai/docs/data-api-get-session.md), [v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), [List Sessions](https://docs-en.asleep.ai/docs/data-api-list-sessions.md), [Average Stats](https://docs-en.asleep.ai/docs/get-users-average-stats.md), and [Webhook V3](https://docs-en.asleep.ai/docs/webhook.md). Public documentation defines the customer-facing contract; tolerate additive fields.
