@@ -39,7 +39,7 @@ curl -H "x-api-key: YOUR_API_KEY" https://api.asleep.ai/ai/v1/users/USER_ID
 
 ## Response Format
 
-All successful responses follow this envelope structure:
+Most successful JSON responses use this envelope. Do not require a particular `detail` string (`OK` and `success` both occur). DELETE success is HTTP 204 with no body; Close and Reanalyze return only `detail`:
 
 ```json
 {
@@ -69,16 +69,16 @@ curl -X POST https://api.asleep.ai/ai/v1/users \
   -d '{"metadata": {"birth_year": 1990, "gender": "male", "height": 175.5, "weight": 70.0}}'
 ```
 
-**Request body** (all fields optional):
+**Request body** (all metadata fields optional and nullable):
 
 | Field | Type | Constraints |
 |-------|------|-------------|
-| metadata.birth_year | Integer | |
-| metadata.birth_month | Integer | 1-12 |
-| metadata.birth_day | Integer | 1-31 |
-| metadata.gender | String | male, female, non_binary, other, prefer_not_to_say |
-| metadata.height | Float | cm, 0-300 |
-| metadata.weight | Float | kg, 0-1000 |
+| metadata.birth_year | Integer or null | 1900 through current year |
+| metadata.birth_month | Integer or null | 1-12 |
+| metadata.birth_day | Integer or null | 1-31; valid calendar date |
+| metadata.gender | String or null | male, female, non_binary, other, prefer_not_to_say |
+| metadata.height | Float or null | cm, 0-300; at most one decimal place |
+| metadata.weight | Float or null | kg, 0-1000; at most one decimal place |
 
 **Response (201 Created):**
 Returns the generated `user_id` in `result`.
@@ -107,12 +107,12 @@ curl https://api.asleep.ai/ai/v1/users/USER_ID \
 |-------|-------------|
 | user_id | User identifier |
 | to_be_deleted | Boolean indicating pending deletion |
-| last_session_info | Object with session_id, state, session_start_time, session_end_time |
-| metadata | Object with demographic fields (birth_year, gender, height, weight, etc.) |
+| last_session_info | Object or null; fields: session_id, inference_type, service, start_time, nullable end_time, state, nullable complete_time |
+| metadata | Object or null with demographic fields (birth_year, gender, height, weight, etc.) |
 
 ### PUT /ai/v1/users/{user_id} -- Update User
 
-Updates user metadata. Send the same `metadata` object as in Create User.
+Updates user metadata. The `metadata` member is required and may be null; its fields are optional and nullable. Do not assume omitted fields are preserved without checking the current update contract.
 
 ```bash
 curl -X PUT https://api.asleep.ai/ai/v1/users/USER_ID \
@@ -121,7 +121,7 @@ curl -X PUT https://api.asleep.ai/ai/v1/users/USER_ID \
   -d '{"metadata": {"height": 180.0, "weight": 75.0}}'
 ```
 
-**Response (200 OK):** Returns the `user_id` in `result`.
+**Response (200 OK):** Returns `user_id` and `metadata` in `result`.
 
 ### DELETE /ai/v1/users/{user_id} -- Delete User
 
@@ -136,9 +136,11 @@ curl -X DELETE https://api.asleep.ai/ai/v1/users/USER_ID \
 
 ## Session Data Endpoints
 
-### GET /data/v3/sessions/{session_id} -- Get Session
+### GET /data/v3/sessions/{session_id} -- Get Session (deprecated)
 
-Returns the full session object (sleep stages, snoring stages) and the stat object (all computed metrics) for a single session.
+Returns session metadata and nullable analysis results. For new integrations use [Get Session v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), which adds a nullable `analysis` object with epoch-range information. The schema reference below describes v3 and the V3 webhook; do not infer that API and webhook version numbers are interchangeable.
+
+With a selected analysis range, `start_time`/`end_time` describe that range; required `measurement_start_time` and nullable `measurement_end_time` retain the actual measurement window.
 
 ```bash
 curl https://api.asleep.ai/data/v3/sessions/SESSION_ID \
@@ -155,9 +157,9 @@ curl https://api.asleep.ai/data/v3/sessions/SESSION_ID \
 | peculiarities | Array of special conditions (e.g., NEVER_SLEPT, IN_PROGRESS) |
 | missing_data_ratio | Proportion of missing audio data (0.0-1.0) |
 | session | Object with id, state, start_time, end_time, sleep_stages, snoring_stages |
-| stat | Object with all computed sleep metrics (latencies, durations, ratios, cycles) |
+| stat | Nullable computed sleep metrics; inspect peculiarities and field nullability |
 
-Sleep stages are recorded every 30 seconds: -1 (unknown), 0 (wake), 1 (light), 2 (deep), 3 (REM).
+Sleep stage values for four-stage analysis are -1 (invalid audio or analysis error), 0 (wake), 1 (light), 2 (deep), 3 (REM). Two-stage analysis uses 0 (wake) and 1 (sleep). For v4 ranged sessions, use `analysis.epoch_durations`; do not assume every epoch is 30 seconds.
 
 See `references/response_schemas.md` for the complete field-by-field breakdown of the session and stat objects.
 
@@ -179,9 +181,38 @@ curl "https://api.asleep.ai/data/v1/sessions?date_gte=2024-01-01&date_lte=2024-0
 | date_lte | String (YYYY-MM-DD) | -- | Sessions on or before this date |
 | order_by | ASC or DESC | DESC | Sort by start time |
 | offset | Integer | 0 | Records to skip |
-| limit | Integer (0-100) | 20 | Max records per request |
+| limit | Integer (0-100) | 10 | Max records per request |
 
-**Response (200 OK):** Contains `timezone` and `sleep_session_list` array. Each item includes `session_id`, `state`, `session_start_time`, `session_end_time`, `created_timezone`, `unexpected_end_time`, `last_received_seq_num`, and `time_in_bed`.
+**Response (200 OK):** Contains `timezone` and `sleep_session_list`. Items include `session_id`, `state`, analysis-range `session_start_time`/nullable `session_end_time`, required `measurement_start_time`, nullable `measurement_end_time`, `created_timezone`, nullable `unexpected_end_time`, `last_received_seq_num`, and `time_in_bed`. See the schema reference for nullability.
+
+### POST /ai/v1/sessions/{session_id}/close -- Close Session
+
+Ends recording. Requires `x-api-key` and `x-user-id`. The public [Close Session contract](https://docs-en.asleep.ai/docs/close-session.md) documents optional JSON `unexpected` (`0` or `1`, default `0`) for abnormal termination. Let the SDK close sessions it owns. Success is HTTP 200 with `{"detail":"success"}`; invalid `unexpected` values return 400, an invalid `x-user-id` returns 401, an already closed session returns 403, and a missing session or user returns 404. This reference does not publish undocumented Close request fields.
+
+### POST /data/v1/sessions/{session_id}/reanalyze -- Reanalyze Session
+
+Re-runs analysis of a COMPLETE session. Requires `x-api-key` and `x-user-id`. Send a JSON object body (`{}` when no bounds are selected). Optional **flat** `start_time` and `end_time` bounds must be UTC and ordered. After success, refetch the report and invalidate cached values.
+
+```bash
+curl -X POST https://api.asleep.ai/data/v1/sessions/SESSION_ID/reanalyze \
+  -H "x-api-key: YOUR_API_KEY" \
+  -H "x-user-id: USER_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"start_time":"2025-01-15T03:00:00+00:00","end_time":"2025-01-15T07:00:00+00:00"}'
+```
+
+Success is HTTP 200 with `{"detail":"reanalyze success"}` or `{"detail":"already analyzed"}`.
+
+| Status | Publicly documented condition |
+|--------|-------------------------------|
+| 400 | Invalid session ID, non-UTC or unordered bounds, or range exceeding available data |
+| 401 / 403 | Authentication failure / inaccessible customer |
+| 404 | Session **or sleep analysis** not found |
+| 409 | Reanalysis already in progress |
+| 410 | Analysis result no longer exists |
+| 422 | Session not COMPLETE |
+
+Send bounds inside the recorded measurement window (`measurement_start_time`..`measurement_end_time`). Handle 400 for out-of-range or too-short ranges, and do not rely on the server to adjust bounds. Do not infer model-specific minimum durations from this public reference.
 
 ### DELETE /ai/v1/sessions/{session_id} -- Delete Session
 
@@ -218,63 +249,28 @@ curl "https://api.asleep.ai/data/v1/users/USER_ID/average-stats?start_date=2024-
 
 | Field | Description |
 |-------|-------------|
-| period | Object with start_date, end_date, and days count |
+| period | Object with timezone, start_date, and end_date (no days field) |
 | peculiarities | Array of conditions (e.g., NO_BREATHING_STABILITY) |
 | average_stats | Object with averaged metrics: times, durations, ratios, event counts |
-| slept_sessions | Array of session references where sleep was detected |
-| never_slept_sessions | Array of session references where no sleep was detected |
+| slept_sessions | Array of flattened per-session metrics where sleep was detected (see schema) |
+| never_slept_sessions | Array of no-sleep session objects (id, start_time, end_time, completed_time) |
 
 See `references/response_schemas.md` for the full average_stats field listing.
 
-## Webhook Events
+## Webhook Events (V3)
 
-Asleep sends HTTP POST requests to your configured callback URL when sleep data events occur. Configure your callback URL via the SDK `callbackUrl` parameter or through the Asleep Dashboard.
+Register `callback_url` when creating a session, or use the platform-specific SDK callback URL option. V3 payloads use top-level `event`, `version`, and **`data`**. See the schema reference for event-specific fields. Do not flatten `data` or invent `time_window`.
 
-Webhook requests include `x-api-key` and `x-user-id` headers for authentication. Always use webhook version **V3** for new integrations.
+- `INFERENCE_COMPLETE`: repeated incremental results; deduplicate by `data.session_id + event + data.inference_seq_num`, and reject stale sequence updates.
+- `SESSION_COMPLETE`: final session result under `data`, with `user_id` added. Its session identifier is `data.session.id`; deduplicate by that ID plus event.
 
-### INFERENCE_COMPLETE
+The public webhook field table calls the inference stage field `stage_list`, while its V3 example uses `sleep_stages`. Confirm the actual payload for the pinned integration before hard-coding a deserializer; the reference example follows the V3 example. Do not silently conflate these names.
 
-Fires every 5-40 minutes during active sleep tracking, providing incremental analysis data.
+### Authentication and delivery
 
-**Payload fields:** `event`, `version`, `user_id`, `session_id`, `seq_num`, `inference_seq_num`, `sleep_stages`, `snoring_stages`, `time_window` (start, end).
+Requests include `x-api-key` and `x-user-id`. If a webhook secret has been issued, require `X-Asleep-Timestamp` and `X-Asleep-Signature`: verify HMAC-SHA256 over `timestamp + "." + raw_body`, using the exact raw request bytes, a timing-safe comparison, and any supported `v1=` signature in the comma-separated header (rotation may supply multiple). Reject malformed headers and timestamps; the official guide recommends a five-minute freshness tolerance. Parse JSON after verification. When no secret has been issued these signature headers are absent. See [HMAC verification](https://docs-en.asleep.ai/docs/webhook-hmac-signature-verification.md).
 
-```bash
-# Example: simulating a webhook POST to your endpoint
-curl -X POST https://your-server.com/webhook \
-  -H "x-api-key: YOUR_API_KEY" \
-  -H "x-user-id: USER_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"event":"INFERENCE_COMPLETE","version":"V3","session_id":"s123","sleep_stages":[1,1,2]}'
-```
-
-### SESSION_COMPLETE
-
-Fires once when a session's analysis finishes. The payload mirrors the Get Session response structure, with the addition of top-level `event`, `version`, and `user_id` fields.
-
-**Payload fields:** `event`, `version`, `user_id`, `session_id`, `session` (full object), `stat` (full object), `peculiarities`.
-
-See `references/response_schemas.md` for complete webhook payload schemas with field tables and example JSON.
-
-### Webhook Versions
-
-| Version | Status | Notes |
-|---------|--------|-------|
-| V1 | Legacy | Original format |
-| V2 | Legacy | Additional fields |
-| V3 | Current | Recommended for all new integrations |
-
-### Webhook Authentication
-
-Asleep sends `x-api-key` and `x-user-id` as headers on every POST to your callback URL. Verify these headers match expected values before processing the payload.
-
-### Webhook Configuration
-
-Webhooks can be configured in two ways:
-
-1. **SDK parameter:** Pass `callbackUrl` when initializing the Asleep SDK in your mobile app. The SDK will register the URL with the Asleep platform.
-2. **Dashboard:** Set the webhook URL in the Asleep Dashboard under your application settings.
-
-Your callback endpoint must be a publicly accessible HTTPS URL that responds with a 2xx status code within 30 seconds.
+Return a 2xx response after durable acceptance and process asynchronously. The [delivery policy](https://docs-en.asleep.ai/docs/webhook.md) retries network/timeouts and HTTP 408, 429, or 5xx; duplicate and out-of-order delivery are possible. Do not assume exactly-once delivery or an undocumented 30-second response contract.
 
 ## Error Codes
 
@@ -292,20 +288,20 @@ Endpoints use explicit version prefixes:
 
 | Domain | Version | Endpoints |
 |--------|---------|-----------|
-| User management | /ai/v1/ | Create, Get, Update, Delete user; Delete session |
-| Session data (get) | /data/v3/ | Get single session |
-| Session data (list) | /data/v1/ | List sessions |
+| User management | /ai/v1/ | Create, Get, Update, Delete user; Close/Delete session |
+| Session data (get) | /data/v4/ (recommended), /data/v3/ (deprecated) | Get single session |
+| Session data (list/reanalyze) | /data/v1/ | List or reanalyze sessions |
 | Statistics | /data/v1/ | Average stats |
 
-**Version bump policy:** Adding new fields to a response does not trigger a version change. Version changes occur only when field names, types, or structural shapes change.
+Allow additive response fields and pin endpoint and SDK versions. Check official version notices before migration.
 
 ## Best Practices
 
-**Cache completed sessions.** Once a session reaches COMPLETE state, its data is immutable. Store the response locally to avoid redundant API calls.
+**Invalidate reports after reanalysis.** COMPLETE is not an immutability guarantee. Refetch after a successful reanalysis.
 
 **Use exponential backoff on rate limits.** When you receive a 403 rate-limit response, wait with increasing delays (e.g., 1s, 2s, 4s) before retrying. Cap at a reasonable maximum (e.g., 60s).
 
-**Ensure webhook idempotency.** Track processed session/event IDs to avoid duplicate processing if the same webhook fires more than once.
+**Ensure webhook idempotency.** Use the event-specific keys above; session/event alone would discard later inference updates.
 
 **Respond to webhooks quickly.** Return a 2xx status within a few seconds. Offload heavy processing to a background queue to avoid webhook timeouts.
 
@@ -322,3 +318,7 @@ Endpoints use explicit version prefixes:
 This skill includes detailed response schemas and field definitions:
 
 - `references/response_schemas.md`: Complete field-by-field documentation for all response objects, webhook payloads, enumerations, and example JSON
+
+## Contract sources
+
+Verified against public documentation on 2026-10-19: [Get Session v3](https://docs-en.asleep.ai/docs/data-api-get-session.md), [v4](https://docs-en.asleep.ai/docs/data-api-get-session-v4.md), [List Sessions](https://docs-en.asleep.ai/docs/data-api-list-sessions.md), [Average Stats](https://docs-en.asleep.ai/docs/get-users-average-stats.md), [Create User](https://docs-en.asleep.ai/docs/session-api-create-user.md), and [Update User](https://docs-en.asleep.ai/docs/put-update-user.md), and [Get User](https://docs-en.asleep.ai/docs/session-api-get-user.md). Public documentation defines the customer-facing contract; server release behavior is not proof of deployment.
